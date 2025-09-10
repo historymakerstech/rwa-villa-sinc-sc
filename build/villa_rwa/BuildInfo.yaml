@@ -1,0 +1,27 @@
+---
+compiled_package_info:
+  package_name: villa_rwa
+  address_alias_instantiation:
+    std: "0000000000000000000000000000000000000000000000000000000000000001"
+    sui: "0000000000000000000000000000000000000000000000000000000000000002"
+    villa_rwa: "0000000000000000000000000000000000000000000000000000000000000000"
+  source_digest: 1468325A5FA84A4F5A9D823860A47E84E84BB8B8378373701B0D5BAAD2AB57C3
+  build_flags:
+    dev_mode: false
+    test_mode: false
+    generate_docs: false
+    install_dir: ~
+    force_recompilation: false
+    lock_file: "./Move.lock"
+    fetch_deps_only: false
+    skip_fetch_latest_git_deps: false
+    default_flavor: sui
+    default_edition: ~
+    deps_as_root: false
+    silence_warnings: false
+    warnings_are_errors: false
+    additional_named_addresses: {}
+    no_lint: false
+dependencies:
+  - MoveStdlib
+  - Sui
