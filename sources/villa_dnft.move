@@ -1,8 +1,8 @@
 /// Villa RWA Dynamic NFT Implementation for Sui
-/// Final working implementation without villa status (handled off-chain)
+/// Final working implementation
 module villa_rwa::villa_dnft {
     use sui::object::{Self, UID, ID};
-    use sui::transfer;
+    use sui::transfer as sui_transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::table::{Self, Table};
     use sui::clock::{Self, Clock};
@@ -10,6 +10,8 @@ module villa_rwa::villa_dnft {
     use sui::coin::{Self, Coin};
     use sui::sui::SUI;
     use sui::balance::{Self, Balance};
+    use sui::package;
+    use sui::display;
     use std::string::{Self, String};
     use std::vector;
 
@@ -53,21 +55,21 @@ module villa_rwa::villa_dnft {
     const EInvalidBatchEscrowStatus: u64 = 38;
 
     // ===== Capability Objects =====
-    struct VILLA_DNFT has drop {}
+    public struct VILLA_DNFT has drop {}
 
-    struct AppCap has key, store {
+    public struct AppCap has key, store {
         id: UID,
         app_address: address,
     }
 
     #[allow(unused_field)]
-    struct AdminCap has key, store {
+    public struct AdminCap has key, store {
         id: UID,
         app_address: address,
     }
 
     #[allow(unused_field)]
-    struct AssetManagerCap has key, store {
+    public struct AssetManagerCap has key, store {
         id: UID,
         app_address: address,
     }
@@ -75,7 +77,7 @@ module villa_rwa::villa_dnft {
     // ===== Enhanced Capability System =====
     
     /// Super Admin Registry - manages all admins and roles
-    struct SuperAdminRegistry has key, store {
+    public struct SuperAdminRegistry has key, store {
         id: UID,
         super_admin: address,
         admins: Table<address, AdminInfo>,
@@ -84,7 +86,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// Address Registry - tracks all registered wallet addresses
-    struct AddressRegistry has key, store {
+    public struct AddressRegistry has key, store {
         id: UID,
         addresses: Table<address, AddressInfo>,
         total_addresses: u64,
@@ -92,7 +94,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// Address Information
-    struct AddressInfo has store, drop {
+    public struct AddressInfo has store, drop {
         address: address,
         registered_by: address,
         registered_at: u64,
@@ -101,7 +103,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// Admin Information
-    struct AdminInfo has store, drop {
+    public struct AdminInfo has store, drop {
         address: address,
         role: String,           // "SUPER_ADMIN", "ADMIN", "MODERATOR", "ASSET_MANAGER"
         permissions: vector<String>, // List of permissions
@@ -112,13 +114,13 @@ module villa_rwa::villa_dnft {
     }
 
     /// Role Permission Registry
-    struct RolePermissionRegistry has key, store {
+    public struct RolePermissionRegistry has key, store {
         id: UID,
         roles: Table<String, vector<String>>, // role -> permissions mapping
     }
 
     /// Admin Delegation Capability
-    struct AdminDelegationCap has key, store {
+    public struct AdminDelegationCap has key, store {
         id: UID,
         admin_address: address,
         delegated_by: address,
@@ -128,7 +130,7 @@ module villa_rwa::villa_dnft {
 
     // ===== Main Data Structures =====
 
-    struct VillaProject has key, store {
+    public struct VillaProject has key, store {
         id: UID,
         project_id: String,
         name: String,
@@ -142,7 +144,7 @@ module villa_rwa::villa_dnft {
         updated_at: u64,
     }
 
-    struct VillaMetadata has key, store {
+    public struct VillaMetadata has key, store {
         id: UID,
         project_id: String,
         villa_id: String,
@@ -157,7 +159,7 @@ module villa_rwa::villa_dnft {
         updated_at: u64,
     }
 
-    struct VillaShareNFT has key, store {
+    public struct VillaShareNFT has key, store {
         id: UID,
         project_id: String,
         villa_id: String,
@@ -174,7 +176,7 @@ module villa_rwa::villa_dnft {
         listing_price: u64,
     }
 
-    struct DNFTListing has key, store {
+    public struct DNFTListing has key, store {
         id: UID,
         share_nft_id: ID,
         project_id: String,
@@ -191,7 +193,7 @@ module villa_rwa::villa_dnft {
         nft_image_url: String,
     }
 
-    struct DNFTTrade has key, store {
+    public struct DNFTTrade has key, store {
         id: UID,
         share_nft_id: ID,
         project_id: String,
@@ -205,13 +207,13 @@ module villa_rwa::villa_dnft {
     }
 
     // Commission data that can be dropped
-    struct SaleCommission has drop {
+    public struct SaleCommission has drop {
         affiliate_commission: u64,
         app_commission: u64,
         total_price: u64,
     }
 
-    struct VillaMarketplace has key, store {
+    public struct VillaMarketplace has key, store {
         id: UID,
         project_id: String,
         listings: Table<ID, DNFTListing>,
@@ -221,7 +223,7 @@ module villa_rwa::villa_dnft {
         created_at: u64,
     }
 
-    struct AffiliateReward has key, store {
+    public struct AffiliateReward has key, store {
         id: UID,
         affiliate_code: String,
         owner: address,
@@ -232,7 +234,7 @@ module villa_rwa::villa_dnft {
         updated_at: u64,
     }
 
-    struct AppTreasury has key, store {
+    public struct AppTreasury has key, store {
         id: UID,
         project_id: String,
         total_earned: u64,
@@ -243,7 +245,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// Commission Configuration - manages commission rates and settings
-    struct CommissionConfig has key, store {
+    public struct CommissionConfig has key, store {
         id: UID,
         default_commission_rate: u64, // Default 10% (1000 basis points)
         current_commission_rate: u64, // Current commission rate
@@ -254,7 +256,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// Treasury Balance - stores actual SUI/USDC balance for commission withdrawal
-    struct TreasuryBalance has key, store {
+    public struct TreasuryBalance has key, store {
         id: UID,
         sui_balance: Balance<SUI>,
         usdc_balance: Balance<USDC>,
@@ -265,7 +267,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// Affiliate Configuration - manages affiliate code settings
-    struct AffiliateConfig has key, store {
+    public struct AffiliateConfig has key, store {
         id: UID,
         default_prefix: String, // Default affiliate code prefix
         current_prefix: String, // Current affiliate code prefix
@@ -276,7 +278,7 @@ module villa_rwa::villa_dnft {
     }
 
     /// User Vault for storing SUI and USDC tokens
-    struct UserVault has key, store {
+    public struct UserVault has key, store {
         id: UID,
         owner: address,
         sui_balance: Balance<SUI>,
@@ -286,12 +288,12 @@ module villa_rwa::villa_dnft {
     }
 
     /// USDC token type for payments
-    struct USDC has drop {}
+    public struct USDC has drop {}
 
     // ===== Batch Escrow Configuration =====
 
     /// Batch Escrow Configuration - manages batch escrow settings
-    struct BatchEscrowConfig has key, store {
+    public struct BatchEscrowConfig has key, store {
         id: UID,
         max_batch_size: u64,              // Maximum NFTs per batch (default: 100)
         default_expiry_hours: u64,        // Default expiry time in hours (default: 1)
@@ -303,7 +305,7 @@ module villa_rwa::villa_dnft {
     // ===== Batch Escrow System =====
 
     /// Batch Escrow for atomic batch minting with payment
-    struct BatchEscrow<phantom T> has key, store {
+    public struct BatchEscrow<phantom T> has key, store {
         id: UID,
         buyer: address,                    // User address who purchased
         platform: address,                 // Platform address (admin)
@@ -331,14 +333,14 @@ module villa_rwa::villa_dnft {
 
     // ===== Events =====
 
-    struct VillaProjectCreated has copy, drop {
+    public struct VillaProjectCreated has copy, drop {
         project_id: String,
         name: String,
         max_total_shares: u64,
         created_at: u64,
     }
 
-    struct VillaProjectUpdated has copy, drop {
+    public struct VillaProjectUpdated has copy, drop {
         project_id: String,
         old_name: String,
         new_name: String,
@@ -349,7 +351,7 @@ module villa_rwa::villa_dnft {
         updated_at: u64,
     }
 
-    struct VillaMetadataCreated has copy, drop {
+    public struct VillaMetadataCreated has copy, drop {
         project_id: String,
         villa_id: String,
         name: String,
@@ -357,7 +359,7 @@ module villa_rwa::villa_dnft {
         created_at: u64,
     }
 
-    struct VillaSharesMinted has copy, drop {
+    public struct VillaSharesMinted has copy, drop {
         project_id: String,
         villa_id: String,
         amount: u64,
@@ -370,14 +372,14 @@ module villa_rwa::villa_dnft {
         nft_price: u64,
     }
 
-    struct DNFTListed has copy, drop {
+    public struct DNFTListed has copy, drop {
         share_nft_id: ID,
         seller: address,
         price: u64,
         created_at: u64,
     }
 
-    struct DNFTBought has copy, drop {
+    public struct DNFTBought has copy, drop {
         share_nft_id: ID,
         buyer: address,
         seller: address,
@@ -386,41 +388,41 @@ module villa_rwa::villa_dnft {
         app_commission: u64,
     }
 
-    struct AffiliateRewardEarned has copy, drop {
+    public struct AffiliateRewardEarned has copy, drop {
         affiliate_code: String,
         owner: address,
         amount: u64,
         timestamp: u64,
     }
 
-    struct CommissionPaid has copy, drop {
+    public struct CommissionPaid has copy, drop {
         recipient: address,
         amount: u64,
         timestamp: u64,
     }
 
     // Marketplace events
-    struct NFTListed has copy, drop {
+    public struct NFTListed has copy, drop {
         nft_id: ID,
         owner: address,
         price: u64,
         timestamp: u64,
     }
 
-    struct NFTDelisted has copy, drop {
+    public struct NFTDelisted has copy, drop {
         nft_id: ID,
         owner: address,
         timestamp: u64,
     }
 
-    struct NFTTransferred has copy, drop {
+    public struct NFTTransferred has copy, drop {
         nft_id: ID,
         from: address,
         to: address,
         timestamp: u64,
     }
 
-    struct PriceUpdated has copy, drop {
+    public struct PriceUpdated has copy, drop {
         nft_id: ID,
         old_price: u64,
         new_price: u64,
@@ -428,20 +430,20 @@ module villa_rwa::villa_dnft {
     }
 
     // Enhanced capability system events
-    struct AdminAdded has copy, drop {
+    public struct AdminAdded has copy, drop {
         admin_address: address,
         role: String,
         granted_by: address,
         timestamp: u64,
     }
 
-    struct AdminRemoved has copy, drop {
+    public struct AdminRemoved has copy, drop {
         admin_address: address,
         removed_by: address,
         timestamp: u64,
     }
 
-    struct AdminRoleUpdated has copy, drop {
+    public struct AdminRoleUpdated has copy, drop {
         admin_address: address,
         old_role: String,
         new_role: String,
@@ -449,27 +451,27 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct AdminPermissionGranted has copy, drop {
+    public struct AdminPermissionGranted has copy, drop {
         admin_address: address,
         permission: String,
         granted_by: address,
         timestamp: u64,
     }
 
-    struct AdminPermissionRevoked has copy, drop {
+    public struct AdminPermissionRevoked has copy, drop {
         admin_address: address,
         permission: String,
         revoked_by: address,
         timestamp: u64,
     }
 
-    struct OwnershipTransferred has copy, drop {
+    public struct OwnershipTransferred has copy, drop {
         old_owner: address,
         new_owner: address,
         timestamp: u64,
     }
 
-    struct AdminDelegationCreated has copy, drop {
+    public struct AdminDelegationCreated has copy, drop {
         admin_address: address,
         delegated_by: address,
         permissions: vector<String>,
@@ -477,7 +479,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct AdminListedForUser has copy, drop {
+    public struct AdminListedForUser has copy, drop {
         nft_id: ID,
         admin_address: address,
         user_address: address,
@@ -486,20 +488,20 @@ module villa_rwa::villa_dnft {
     }
 
     // Admin executor events
-    struct AdminMintedForUser has copy, drop {
+    public struct AdminMintedForUser has copy, drop {
         nft_id: ID,
         admin_address: address,
         user_address: address,
         timestamp: u64,
     }
 
-    struct AdminMintedForAdmin has copy, drop {
+    public struct AdminMintedForAdmin has copy, drop {
         nft_id: ID,
         admin_address: address,
         timestamp: u64,
     }
 
-    struct AdminTransferredForUser has copy, drop {
+    public struct AdminTransferredForUser has copy, drop {
         nft_id: ID,
         admin_address: address,
         from_address: address,
@@ -507,7 +509,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct AdminBoughtForUser has copy, drop {
+    public struct AdminBoughtForUser has copy, drop {
         nft_id: ID,
         admin_address: address,
         buyer_address: address,
@@ -516,7 +518,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct AdminDepositedForUser has copy, drop {
+    public struct AdminDepositedForUser has copy, drop {
         admin_address: address,
         user_address: address,
         amount: u64,
@@ -524,7 +526,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct AdminWithdrewForUser has copy, drop {
+    public struct AdminWithdrewForUser has copy, drop {
         admin_address: address,
         user_address: address,
         recipient_address: address,
@@ -534,13 +536,13 @@ module villa_rwa::villa_dnft {
     }
 
     // User vault events
-    struct UserVaultCreated has copy, drop {
+    public struct UserVaultCreated has copy, drop {
         vault_id: ID,
         owner: address,
         timestamp: u64,
     }
 
-    struct TokenDeposited has copy, drop {
+    public struct TokenDeposited has copy, drop {
         vault_id: ID,
         owner: address,
         amount: u64,
@@ -548,7 +550,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct TokenWithdrawn has copy, drop {
+    public struct TokenWithdrawn has copy, drop {
         vault_id: ID,
         owner: address,
         recipient: address,
@@ -558,21 +560,21 @@ module villa_rwa::villa_dnft {
     }
 
     // Address registry events
-    struct AddressRegistered has copy, drop {
+    public struct AddressRegistered has copy, drop {
         address: address,
         registered_by: address,
         timestamp: u64,
     }
 
     /// Commission system events
-    struct CommissionConfigUpdated has copy, drop {
+    public struct CommissionConfigUpdated has copy, drop {
         admin_address: address,
         old_rate: u64,
         new_rate: u64,
         timestamp: u64,
     }
 
-    struct CommissionCollected has copy, drop {
+    public struct CommissionCollected has copy, drop {
         seller_address: address,
         buyer_address: address,
         total_price: u64,
@@ -581,21 +583,21 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct CommissionWithdrawn has copy, drop {
+    public struct CommissionWithdrawn has copy, drop {
         admin_address: address,
         amount: u64,
         token_type: String,
         timestamp: u64,
     }
 
-    struct TreasuryBalanceUpdated has copy, drop {
+    public struct TreasuryBalanceUpdated has copy, drop {
         sui_balance: u64,
         usdc_balance: u64,
         total_earned: u64,
         timestamp: u64,
     }
 
-    struct AffiliateConfigUpdated has copy, drop {
+    public struct AffiliateConfigUpdated has copy, drop {
         admin_address: address,
         old_prefix: String,
         new_prefix: String,
@@ -604,7 +606,7 @@ module villa_rwa::villa_dnft {
 
     // ===== Batch Escrow Events =====
 
-    struct BatchEscrowCreated has copy, drop {
+    public struct BatchEscrowCreated has copy, drop {
         escrow_id: ID,
         buyer: address,
         platform: address,
@@ -616,7 +618,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct BatchMintingCompleted has copy, drop {
+    public struct BatchMintingCompleted has copy, drop {
         escrow_id: ID,
         buyer: address,
         platform: address,
@@ -628,7 +630,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct BatchEscrowProcessed has copy, drop {
+    public struct BatchEscrowProcessed has copy, drop {
         escrow_id: ID,
         buyer: address,
         platform: address,
@@ -639,7 +641,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct BatchEscrowCancelled has copy, drop {
+    public struct BatchEscrowCancelled has copy, drop {
         escrow_id: ID,
         buyer: address,
         platform: address,
@@ -649,7 +651,7 @@ module villa_rwa::villa_dnft {
         timestamp: u64,
     }
 
-    struct BatchEscrowConfigUpdated has copy, drop {
+    public struct BatchEscrowConfigUpdated has copy, drop {
         admin_address: address,
         max_batch_size: u64,
         default_expiry_hours: u64,
@@ -659,30 +661,83 @@ module villa_rwa::villa_dnft {
 
     // ===== Initialization =====
 
+    /// Create Display object for VillaShareNFT (for wallet rendering)
+    /// This function creates a Display template that wallets use to render NFT metadata
+    /// Based on Sui Display Standard: https://docs.sui.io/standards/display
+    /// 
+    /// ⚠️ IMPORTANT: This function should be called ONCE after package upgrade
+    /// with the Publisher object that was created during deployment
+    /// Returns Display object that caller can transfer or use as needed
+    public fun create_and_transfer_display(
+        publisher: &package::Publisher,
+        ctx: &mut TxContext
+    ): display::Display<VillaShareNFT> {
+        let keys = vector[
+            string::utf8(b"name"),
+            string::utf8(b"description"),
+            string::utf8(b"image_url"),
+            string::utf8(b"url"), // ← CRITICAL for Slush Wallet compatibility
+            string::utf8(b"project_url"),
+            string::utf8(b"creator"),
+            string::utf8(b"project_id"),
+            string::utf8(b"villa_id"),
+        ];
+        
+        let values = vector[
+            string::utf8(b"{name}"),
+            string::utf8(b"{description}"),
+            string::utf8(b"{image_url}"),
+            string::utf8(b"{image_url}"), // url points to same image_url (for wallet compatibility)
+            string::utf8(b"https://app.thehistorymaker.io"), // Project URL
+            string::utf8(b"{owner}"), // Creator = NFT owner address
+            string::utf8(b"{project_id}"),
+            string::utf8(b"{villa_id}"),
+        ];
+        
+        let mut display = display::new_with_fields<VillaShareNFT>(
+            publisher, 
+            keys, 
+            values, 
+            ctx
+        );
+        
+        display::update_version(&mut display);
+        
+        // Return Display object (caller can transfer to their address)
+        display
+    }
+
     fun init(_witness: VILLA_DNFT, ctx: &mut TxContext) {
+        // ✅ ORIGINAL: Keep the original behavior - claim_and_keep
+        // This stores Publisher internally and doesn't return it
+        package::claim_and_keep(_witness, ctx);
+        
+        // NOTE: Display object will be created separately after upgrade
+        // by calling create_and_transfer_display() with the stored Publisher
+        
         // Create app capability
         let app_cap = AppCap {
             id: object::new(ctx),
             app_address: tx_context::sender(ctx),
         };
-        transfer::share_object(app_cap);
+        sui_transfer::share_object(app_cap);
 
         // Create admin capability
         let admin_cap = AdminCap {
             id: object::new(ctx),
             app_address: tx_context::sender(ctx),
         };
-        transfer::share_object(admin_cap);
+        sui_transfer::share_object(admin_cap);
 
         // Create asset manager capability
         let asset_manager_cap = AssetManagerCap {
             id: object::new(ctx),
             app_address: tx_context::sender(ctx),
         };
-        transfer::share_object(asset_manager_cap);
+        sui_transfer::share_object(asset_manager_cap);
 
         // Create Super Admin Registry
-        let super_admin_registry = SuperAdminRegistry {
+        let mut super_admin_registry = SuperAdminRegistry {
             id: object::new(ctx),
             super_admin: tx_context::sender(ctx),
             admins: table::new(ctx),
@@ -721,7 +776,7 @@ module villa_rwa::villa_dnft {
         super_admin_registry.total_admins = 1;
 
         // Create Address Registry
-        let address_registry = AddressRegistry {
+        let mut address_registry = AddressRegistry {
             id: object::new(ctx),
             addresses: table::new(ctx),
             total_addresses: 0,
@@ -741,7 +796,7 @@ module villa_rwa::villa_dnft {
         address_registry.total_addresses = 1;
 
         // Create Role Permission Registry
-        let role_permission_registry = RolePermissionRegistry {
+        let mut role_permission_registry = RolePermissionRegistry {
             id: object::new(ctx),
             roles: table::new(ctx),
         };
@@ -792,9 +847,9 @@ module villa_rwa::villa_dnft {
         table::add(&mut role_permission_registry.roles, string::utf8(b"ASSET_MANAGER"), asset_manager_permissions);
 
         // Share the registries
-        transfer::share_object(super_admin_registry);
-        transfer::share_object(address_registry);
-        transfer::share_object(role_permission_registry);
+        sui_transfer::share_object(super_admin_registry);
+        sui_transfer::share_object(address_registry);
+        sui_transfer::share_object(role_permission_registry);
 
         // Create commission configuration (default 10%)
         let current_timestamp = 0; // Will be updated when clock is available
@@ -831,9 +886,9 @@ module villa_rwa::villa_dnft {
         };
 
         // Transfer commission config, treasury balance, and affiliate config to admin
-        transfer::transfer(commission_config, tx_context::sender(ctx));
-        transfer::transfer(treasury_balance, tx_context::sender(ctx));
-        transfer::transfer(affiliate_config, tx_context::sender(ctx));
+        sui_transfer::transfer(commission_config, tx_context::sender(ctx));
+        sui_transfer::transfer(treasury_balance, tx_context::sender(ctx));
+        sui_transfer::transfer(affiliate_config, tx_context::sender(ctx));
     }
 
     // ===== Capability Management =====
@@ -856,7 +911,7 @@ module villa_rwa::villa_dnft {
         app_cap: AppCap,
         recipient: address,
     ) {
-        transfer::transfer(app_cap, recipient);
+        sui_transfer::transfer(app_cap, recipient);
     }
 
     /// Create shared AppCap that can be used by anyone (only by AdminCap)
@@ -868,7 +923,7 @@ module villa_rwa::villa_dnft {
             id: object::new(ctx),
             app_address: @0x0, // Special address for shared cap
         };
-        transfer::share_object(shared_app_cap);
+        sui_transfer::share_object(shared_app_cap);
     }
 
     /// Create villa project using AdminCap (alternative to AppCap)
@@ -1073,9 +1128,9 @@ module villa_rwa::villa_dnft {
         let admin_info = table::borrow_mut(&mut super_admin_registry.admins, admin_address);
         
         // Check if permission already exists
-        let i = 0;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
-        let found = false;
+        let mut found = false;
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &permission) {
                 found = true;
@@ -1111,7 +1166,7 @@ module villa_rwa::villa_dnft {
         let admin_info = table::borrow_mut(&mut super_admin_registry.admins, admin_address);
         
         // Find and remove permission
-        let i = 0;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &permission) {
@@ -1196,8 +1251,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_LIST_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_LIST_FOR_USER")) {
@@ -1252,8 +1307,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_MINT_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_MINT_FOR_USER")) {
@@ -1334,8 +1389,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_MINT_FOR_ADMIN permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_MINT_FOR_ADMIN")) {
@@ -1400,7 +1455,7 @@ module villa_rwa::villa_dnft {
     /// Usage: User gives NFT to admin, admin transfers it to another address
     public fun admin_transfer_for_user(
         super_admin_registry: &mut SuperAdminRegistry,
-        nft: VillaShareNFT,
+        mut nft: VillaShareNFT,
         to_address: address,
         clock: &Clock,
         ctx: &mut TxContext
@@ -1413,8 +1468,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_TRANSFER_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_TRANSFER_FOR_USER")) {
@@ -1471,8 +1526,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_TRANSFER_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_TRANSFER_FOR_USER")) {
@@ -1530,8 +1585,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_BUY_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_BUY_FOR_USER")) {
@@ -1573,7 +1628,7 @@ module villa_rwa::villa_dnft {
         let app_commission = (total_price * marketplace.commission_rate) / 10000;
         
         // Transfer payment to seller
-        transfer::public_transfer(_user_payment, seller);
+        sui_transfer::public_transfer(_user_payment, seller);
         
         // Create new NFT for buyer
         let share_nft = VillaShareNFT {
@@ -1635,7 +1690,7 @@ module villa_rwa::villa_dnft {
     /// Get all admins list
     public fun get_all_admins(super_admin_registry: &SuperAdminRegistry): vector<address> {
         let admins = vector::empty<address>();
-        let i = 0;
+        let mut i = 0;
         let len = super_admin_registry.total_admins;
         while (i < len) {
             // Note: This is a simplified version. In practice, you'd need to iterate through the table
@@ -1712,7 +1767,7 @@ module villa_rwa::villa_dnft {
     /// Get all registered addresses
     public fun get_all_registered_addresses(address_registry: &AddressRegistry): vector<address> {
         let addresses = vector::empty<address>();
-        let i = 0;
+        let mut i = 0;
         let len = address_registry.total_addresses;
         while (i < len) {
             // Note: This is a simplified version. In practice, you'd need to iterate through the table
@@ -1786,8 +1841,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_DEPOSIT_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_DEPOSIT_FOR_USER")) {
@@ -1839,8 +1894,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_DEPOSIT_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_DEPOSIT_FOR_USER")) {
@@ -1894,8 +1949,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_WITHDRAW_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_WITHDRAW_FOR_USER")) {
@@ -1956,8 +2011,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Check if admin has ADMIN_WITHDRAW_FOR_USER permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_WITHDRAW_FOR_USER")) {
@@ -2171,10 +2226,10 @@ module villa_rwa::villa_dnft {
         assert!(villa_metadata.shares_issued + amount <= villa_metadata.max_shares, EExceedsVillaLimit);
         assert!(project.total_shares_issued + amount <= project.max_total_shares, EExceedsProjectLimit);
 
-        let shares = vector::empty<VillaShareNFT>();
+        let mut shares = vector::empty<VillaShareNFT>();
 
         // Mint shares one by one
-        let i = 0;
+        let mut i = 0;
         while (i < amount) {
             let share_nft = VillaShareNFT {
                 id: object::new(ctx),
@@ -2339,7 +2394,7 @@ module villa_rwa::villa_dnft {
         };
         
         // Transfer payment to seller
-        transfer::public_transfer(payment, seller);
+        sui_transfer::public_transfer(payment, seller);
         
         // Update existing share_nft ownership (preserve original ID)
         share_nft.owner = tx_context::sender(ctx);
@@ -2517,7 +2572,7 @@ module villa_rwa::villa_dnft {
     // ===== Marketplace Functions =====
 
     /// Transfer NFT to another address
-    public fun transfer(nft: VillaShareNFT, recipient: address, clock: &Clock, _ctx: &mut TxContext) {
+    public fun transfer(mut nft: VillaShareNFT, recipient: address, clock: &Clock, _ctx: &mut TxContext) {
         let nft_id = object::uid_to_inner(&nft.id);
         let from = nft.owner;
         
@@ -2530,7 +2585,7 @@ module villa_rwa::villa_dnft {
             timestamp: clock::timestamp_ms(clock),
         });
         
-        transfer::public_transfer(nft, recipient);
+        sui_transfer::public_transfer(nft, recipient);
     }
 
     /// List NFT for sale
@@ -2684,7 +2739,7 @@ module villa_rwa::villa_dnft {
         let app_commission = (total_price * marketplace.commission_rate) / 10000;
         
         // Transfer payment to seller
-        transfer::public_transfer(_user_payment, seller);
+        sui_transfer::public_transfer(_user_payment, seller);
         
         // Create new NFT for user (who signed the transaction)
         let buyer_address = tx_context::sender(ctx);
@@ -2887,7 +2942,7 @@ module villa_rwa::villa_dnft {
         let app_commission = (total_price * marketplace.commission_rate) / 10000;
         
         // Transfer payment to seller
-        transfer::public_transfer(_user_payment, seller);
+        sui_transfer::public_transfer(_user_payment, seller);
         
         // Create new NFT for user (who signed the transaction)
         let buyer_address = tx_context::sender(ctx);
@@ -3384,8 +3439,8 @@ module villa_rwa::villa_dnft {
         assert!(admin_info.is_active, ENotAdmin);
         
         // Validate permission
-        let has_permission = false;
-        let i = 0;
+        let mut has_permission = false;
+        let mut i = 0;
         let len = vector::length(&admin_info.permissions);
         while (i < len) {
             if (vector::borrow(&admin_info.permissions, i) == &string::utf8(b"ADMIN_MINT_FOR_USER")) {
@@ -3439,7 +3494,7 @@ module villa_rwa::villa_dnft {
         };
         
         // Transfer payment to platform treasury immediately (like existing buy functions)
-        transfer::public_transfer(user_payment, admin_address);
+        sui_transfer::public_transfer(user_payment, admin_address);
         
         // ===== EMIT EVENT =====
         event::emit(BatchEscrowCreated {
@@ -3488,14 +3543,14 @@ module villa_rwa::villa_dnft {
         batch_escrow.status = BATCH_ESCROW_PROCESSING;
         
         // ===== BATCH MINTING =====
-        let nft_list = vector::empty<VillaShareNFT>();
-        let nft_id_list = vector::empty<ID>();
-        let successful_count = 0;
+        let mut nft_list = vector::empty<VillaShareNFT>();
+        let mut nft_id_list = vector::empty<ID>();
+        let mut successful_count = 0;
         let failed_count = 0;
         
         let price_per_share = villa_metadata.price_per_share;
         
-        let i = 0;
+        let mut i = 0;
         while (i < batch_escrow.nft_count) {
             // Create NFT for user
             let share_nft = VillaShareNFT {
@@ -3552,7 +3607,7 @@ module villa_rwa::villa_dnft {
         
         // ===== EMIT EVENTS =====
         // Emit event for each successful NFT
-        let i = 0;
+        let mut i = 0;
         while (i < successful_count) {
             event::emit(VillaSharesMinted {
                 project_id: project.project_id,
